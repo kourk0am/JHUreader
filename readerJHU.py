@@ -5,7 +5,8 @@ class CovidData(object):
     """Reads data on spread of COVID-19 as published by Johns Hopkins University here: https://github.com/CSSEGISandData/COVID-19
     Needs path to the folder containing the csv files with the recent time series. It should look like this: 
     
-    parent_folder_path/COVID-19/csse_covid_19_data/csse_covid_19_time_series/"""
+    parent_folder_path/COVID-19/csse_covid_19_data/csse_covid_19_time_series/
+    """
     def __init__(self):
         # dictionaries to store data on individual countries and their states/provices
         self.confirmed = {}
@@ -14,7 +15,20 @@ class CovidData(object):
     # list of dates at which the data were recorded
         self.dates = []
     
-    def loadData(self, path):
+    def loadData(self, path = ''):
+        """Reads the data. If path is given it looks for the csv files there. If not it tries to read the data from the web.
+        """
+        if path:
+            self.loadLocalData(path)
+        else:
+            self.loadRemoteData()
+    
+    def loadRemoteData(self):
+        """Reads JHU data from the web."""
+        print('not implemented yet, use local data')
+    
+    
+    def loadLocalData(self, path):
         """Reads data in the three csv files provided by JHU. Needs path to the csv files."""
         # fill the list of dates at which the data were recorded
         rows = self.getRows(path + 'time_series_19-covid-Recovered.csv')
@@ -134,6 +148,8 @@ class CovidData(object):
         """
         fr = fatalityRate
         t = int(timeToDeath)
+        if not province:
+            province = 'total'
         deaths = self.getData(country, province)['dead']
         
         estimate =  np.zeros(len(deaths))
@@ -145,5 +161,6 @@ class CovidData(object):
                 estimate[i] = n/fr
             else:
                 estimate[i] = np.nan
-        return estimate
+        out = {'country' : country, 'province': province, 'fatalityRate' : fatalityRate, 'timeToDeath': timeToDeath, 'estimate' : estimate}
+        return out
         
