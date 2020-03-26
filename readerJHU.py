@@ -4,7 +4,7 @@ import requests
 import os
 
 class CovidData(object):
-    """Reads data on spread of COVID-19 as published by Johns Hopkins University here: https://github.com/CSSEGISandData/COVID-19
+    """Reads time series data on spread of COVID-19 as published by Johns Hopkins University here: https://github.com/CSSEGISandData/COVID-19
     To load the data run the loadData(path = '') method. If no path to folder with the JHU csv files is given it downloads 
     the latest csv files from github and saves them in the current working directory.
     To access the data for a given country run getData(coutry, province = '') method. If no province is given it returns total count for that country. 
@@ -13,12 +13,15 @@ class CovidData(object):
     To get estimate of true cases from the number of deaths run estimateTrueCases(country, province = '')
     """
     def __init__(self):
-        # dictionaries to store data on individual countries and their states/provices
-        self.confirmed = {}
-        self.dead = {}
-        self.recovered = {}
-    # list of dates at which the data were recorded
+        # list of tables - one per csv file
+        self.tables = {}
+        # list of dates at which the data were recorded
         self.dates = []
+        self. urlPartial = 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/'
+        self.filenames = {'confirmed' : 'time_series_covid19_confirmed_global.csv',
+                          'dead' : 'time_series_covid19_deaths_global.csv',
+                          'recovered' :'time_series_covid19_recovered_global.csv'}
+        
     
     def loadData(self, path = ''):
         """Reads the data. If path is given it looks for the csv files there. If not it tries to read the data from the web.
@@ -33,53 +36,50 @@ class CovidData(object):
         self.downloadData()
         cwd = os.getcwd()
         self.loadLocalData(cwd + '/')
-        
+    
+    
+    #this needs to download the right files
     def downloadData(self):
         """Downloads the JHU csv file from the web and saves them in the working directory."""
-        for filename, url in [('time_series_19-covid-Confirmed.csv', 'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv'),
-                               ("time_series_19-covid-Deaths.csv",'https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv'),
-                               ('time_series_19-covid-Recovered.csv','https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv')]:
+        for key in self.filenames:
+            url = self.urlPartial + self.filenames[key]
             r = requests.get(url, allow_redirects=True)
-            open(filename, 'wb').write(r.content)
+            open(self.filenames[key], 'wb').write(r.content)
         
         
     
-    
+    #this needs to read the right files
     def loadLocalData(self, path):
         """Reads data in the three csv files provided by JHU. Needs path to the csv files."""
         # fill the list of dates at which the data were recorded
         
-        #print(path + 'time_series_19-covid-Recovered.csv')
-        rows = self.getRows(path + 'time_series_19-covid-Recovered.csv')
-        row = rows[0]
-        self.dates = row[4:]
-        
-        # load the time series and store it in dicts 
-        for file, d in [('time_series_19-covid-Confirmed.csv', self.confirmed), 
-                        ("time_series_19-covid-Deaths.csv", self.dead), 
-                        ('time_series_19-covid-Recovered.csv', self.recovered)]:
+        # load the csv files and store them in tables dict
+        for key in self.filenames:
             #print(file)
-            rows = self.getRows(path+file)
-            self.fillDict(d, rows)
+            filename = self.filenames[key]
+            table = self.getTable(path+filename)
+            self.tables[key] = table
             
-            
-        # generate totals for countries with multiple provinces   
-        for d in [self.confirmed, self.dead, self.recovered]:
-            self.generateTotals(d)
+        # make a list of dates
+        key = list(self.tables.keys())[0]
+        table = self.tables[key]
+        row = table[0]
+        self.dates = row[4:]
+              
         
-        
-    def getRows(self, filename):
-        """Returns a list of rows in given csv file."""
-        rows = []
+    def getTable(self, filename):
+        """Returns a list of rows in given csv file. filename is a valid path to the csv file"""
+        table = []
         with open(filename) as csvfile:
             creader = csv.reader(csvfile)
             for row in creader:
-                rows.append(row)
-        return rows
+                table.append(row)
+        return table
     
-    def readRow(self, n, rows):
-        """Reads a given row from list of rows (generated by get_rows) and returns (country, province, data)."""
-        row = rows[n]
+    
+    def readRow(self, n, table):
+        """Reads a given row from list of rows (generated by get_rows) and returns (country, province, data). Do not use on the first row. """
+        row = table[n]
         #print(row)
         province = row[0]
         country = row[1]
@@ -90,93 +90,63 @@ class CovidData(object):
             else:
                 data.append(float(0))
         #data = np.array([float(x) for x in row[4:]])
-        return (country, province, data)
+        return (province, country, data)
     
-    def fillDict(self, d, rows):
-        """Takes list of rows generated from reading a csv file by getRows, extracts the time series and saves them in a dictionary of dictionaries d.
-        """
-        for n in range(1, len(rows)):
-            country, province, data = self.readRow(n, rows)
-        
-            # make one entry in our dict for each country, it will be a dict containing provinces
-            if not country in d.keys():
-                d[country] = {}
-            
-            # for each country make a dict with provinces, if no province is given create one called 'total'
-            if province == '':
-                province = 'total'
-                
-            # save data for given country and province    
-            d[country][province] = data 
-        
-        
-                
-    def generateTotals(self, d):
-        """Generates totals for countries with multiple provinces. This could be tricky - there is a risk of double counting if the provinces
-        overlap. For now we just add up cases in all provinces but a country specific summation might be needed here. So far it is only done for the US.
-        """
-        # generate totals for countries with multiple provinces
-        # this just adds up all entries for a country with multiple provinces, it could cause some double counting
-        for country in d.keys():
-            provinces = d[country].keys()
-            if not 'total' in provinces:
-                
-                # avoid double-counting in the US - needs checking that I did not miss a state or territory 
-                if country == 'US':
-                    provinces = ['Washington', 'New York', 'California', 'Massachusetts', 'Diamond Princess', 'Grand Princess', 'Georgia', 
-                                 'Colorado', 'Florida', 'New Jersey', 'Oregon', 'Texas', 'Illinois', 'Pennsylvania', 'Iowa', 'Maryland', 
-                                 'North Carolina', 'South Carolina', 'Tennessee', 'Virginia', 'Arizona', 'Indiana', 'Kentucky', 
-                                 'District of Columbia', 'Nevada', 'New Hampshire', 'Minnesota', 'Nebraska', 'Ohio', 'Rhode Island', 'Wisconsin',
-                                 'Connecticut', 'Hawaii', 'Oklahoma', 'Utah', 'Kansas', 'Louisiana', 'Missouri', 'Vermont', 'Alaska', 'Arkansas',
-                                 'Delaware', 'Idaho', 'Maine', 'Michigan', 'Mississippi', 'Montana', 'New Mexico', 'North Dakota', 'South Dakota',
-                                 'West Virginia', 'Wyoming', 'Washington, D.C.', 'Alabama', 'Puerto Rico', 'Guam', 'Virgin Islands']
-                    total = np.zeros(len(self.dates))
-                    for province in provinces:
-                        total = total + d[country][province]
-                        
-                # add similar blocks as the one for US for other countries as needed
-                
-                else:
-                    total = np.zeros(len(self.dates))
-                    for province in provinces:
-                        total = total + d[country][province]
-                
-                d[country]['total'] = total
     
     def getCountries(self):
         """Returns a list of countries of which there are data."""
-        return list(self.confirmed.keys())
+        countries = []
+        for key in self.tables:
+            table = self.tables[key]
+            for i in range(1, len(table)):
+                line = table[i]
+                country = line[1]
+                if not country in countries:
+                    countries.append(country)
+        return countries
+        
     
     def getProvinces(self, country):
         """Returns a list of provinces for a given country."""
-        return list(self.confirmed[country].keys())
+        provinces = []
+        for key in self.tables:
+            table = self.tables[key]
+            for i in range(1, len(table)):
+                line = table[i]
+                c = line[1]
+                if c == country:
+                    province = line[0]
+                    if not province in provinces:
+                        provinces.append(province)
+        return provinces
     
     def getData(self, country, province = ''):
         """Returns a dict with all relevant data for specified coutry and province. """
-        if province == '':
-            province = 'total'
         
-        if len(self.confirmed[country].keys())>1 and province == 'total':
-               print('Warning: ' + country + ' has multiple provinces, using "total" may lead to double-counting')
-            
-        confirmed = self.confirmed[country][province]
-        dead = self.dead[country][province]
-        recovered = self.recovered[country][province]
+        out = {'country':country, 'province':province}
+        
+        for key in self.tables:
+            table = self.tables[key]
+            data = None
+            for i in range(1,len(table)):
+                row = self.readRow(i,table)
+                if row[1] == country and row[0] == province:
+                    data = row[2]
+            out[key] = data
+                    
         dates = self.dates
         days = range(len(dates))
+        out['dates'] = dates
+        out['days'] = days
         
-        out = {'country' : country, 'province' : province, 'days' : days, 'dates': dates, 
-              'confirmed' : confirmed, 'dead' : dead, 'recovered' : recovered}
         return out
     
-    def estimateTrueCases(self, country, province = '', fatalityRate = 0.02, timeToDeath = 17.3):
+    def estimateTrueCases(self, country, province = '', fatalityRate = 0.01, timeToDeath = 17.3):
         """Returns estimate number of infected people based on fatality count. 
         Uses estimates of fatality rate and of time it takes for average person to die after getting infected.
         """
         fr = fatalityRate
         t = int(timeToDeath)
-        if not province:
-            province = 'total'
         deaths = self.getData(country, province)['dead']
         
         estimate =  np.zeros(len(deaths))
