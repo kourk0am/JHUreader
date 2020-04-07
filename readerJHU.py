@@ -147,7 +147,8 @@ class CovidData(object):
         """
         fr = fatalityRate
         t = int(timeToDeath)
-        deaths = self.getData(country, province)['dead']
+        data = self.getData(country, province)
+        deaths = data['dead']
         
         estimate =  np.zeros(len(deaths))
         for i in range(len(deaths)):
@@ -158,6 +159,33 @@ class CovidData(object):
                 estimate[i] = n/fr
             else:
                 estimate[i] = np.nan
-        out = {'country' : country, 'province': province, 'fatalityRate' : fatalityRate, 'timeToDeath': timeToDeath, 'estimate' : estimate}
+        out = {'country' : country, 'province': province, 'fatalityRate' : fatalityRate, 'timeToDeath': timeToDeath, 'estimate' : estimate, 'days': data['days'], 'dates' : data['dates']}
         return out
+    
+    
+    def estimateGrowthRate(self, country, province = '', minCases = 50):
+        """Returns relative change C_rel of number of cases in percent: 
+        C_rel(day) = (cases(day)/cases(day-1) - 1)*100 
+        Calculation is only done when cases > minCases. This helps 
+        to avoid missbehaviour when there are too few cases (before
+        the exponential growth of the epidemic kicked in). 
+        """
+        data = self.getData(country, province)
+        out = {'country': country, 'province': province, 'dates': data['dates'], 'days': data['days']}
+        for key in self.filenames:
+            cases = data[key]
+            ris = [] # array of relative increases
+            for i, n in enumerate(cases):
+                if i == 0:
+                    ri = np.nan # no relative increase on the first day
+                elif n < minCases:
+                    ri = np.nan # no relative increase when we do not have enough cases
+                else:
+                    ri = (cases[i]/cases[i-1] - 1)*100
+                ris.append(ri)
+            ris = np.array(ris)
+            out[key + 'RC'] = ris
+        return out
+            
+                    
         
