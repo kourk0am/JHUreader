@@ -163,12 +163,14 @@ class CovidData(object):
         return out
     
     
-    def estimateGrowthRate(self, country, province = '', minCases = 50):
-        """Returns relative change C_rel of number of cases in percent: 
+    def estimateGrowthRate(self, country, province = '', minCases = 50, averagingInterval = 1):
+        """Returns relative day-to-day change C_rel of number of cases in percent: 
         C_rel(day) = (cases(day)/cases(day-1) - 1)*100 
         Calculation is only done when cases > minCases. This helps 
         to avoid missbehaviour when there are too few cases (before
         the exponential growth of the epidemic kicked in). 
+        Averaging interval needs to be integer. If averagingInterval is > 1 
+        then the returned growth is average over past averagingInterval days.
         """
         data = self.getData(country, province)
         out = {'country': country, 'province': province, 'dates': data['dates'], 'days': data['days']}
@@ -176,12 +178,16 @@ class CovidData(object):
             cases = data[key]
             ris = [] # array of relative increases
             for i, n in enumerate(cases):
-                if i == 0:
-                    ri = np.nan # no relative increase on the first day
-                elif n < minCases:
+                if i  - averagingInterval < 0: # no relative cases on first few days
+                    ri = np.nan 
+                elif n < minCases or cases[i - averagingInterval] < minCases:
                     ri = np.nan # no relative increase when we do not have enough cases
                 else:
-                    ri = (cases[i]/cases[i-1] - 1)*100
+                    # geometric average of ratios N(t)/N(t-1) during the averaging interval
+                    ratio = n/cases[i-averagingInterval]
+                    averageRatio = np.power(ratio, 1/averagingInterval)
+                    # calculate average growth rate in percent
+                    ri = (averageRatio - 1)*100
                 ris.append(ri)
             ris = np.array(ris)
             out[key + 'RC'] = ris
